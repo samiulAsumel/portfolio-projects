@@ -1,0 +1,65 @@
+- name: Provision and configure infrastructure server
+  hosts: all
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Update package cache (RHEL)
+      yum:
+        update_cache: true
+      when: ansible_os_family == "RedHat"
+      tags: always
+
+    - name: Update package cache (Debian/Ubuntu)
+      apt:
+        update_cache: true
+        cache_valid_time: "{{ package_update_cache_valid_time }}"
+      when: ansible_os_family == "Debian"
+      tags: always
+
+  roles:
+    - role: common
+      tags: common
+
+    - role: ssh-keys
+      tags: ssh-keys
+
+    - role: security
+      tags: security
+
+    - role: monitoring
+      tags: monitoring
+
+- name: Configure database servers
+  hosts: database_servers
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: database
+      tags: database
+
+  post_tasks:
+    - name: Install backup systemd units
+      copy:
+        src: "{{ item }}"
+        dest: /etc/systemd/system/
+        mode: '0644'
+      loop:
+        - ../configs/systemd/backup.service
+        - ../configs/systemd/backup.timer
+      notify:
+        - Reload systemd
+        - Enable backup timer
+      tags: backup
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Enable backup timer
+      systemd:
+        name: backup.timer
+        enabled: true
+        state: started
